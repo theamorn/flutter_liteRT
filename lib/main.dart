@@ -36,7 +36,9 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   final ImagePicker _picker = ImagePicker();
-  static const platform = MethodChannel('com.example.flutter_litert/native_camera');
+  static const platform = MethodChannel(
+    'com.example.flutter_litert/native_camera',
+  );
 
   Future<void> _pickImageAndAnalyze() async {
     final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
@@ -44,9 +46,8 @@ class _MyHomePageState extends State<MyHomePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => PredictionsChartPage(
-            imageFile: File(image.path),
-          ),
+          builder:
+              (context) => PredictionsChartPage(imageFile: File(image.path)),
         ),
       );
     }
@@ -74,18 +75,12 @@ class _MyHomePageState extends State<MyHomePage> {
               const SizedBox(height: 20),
               const Text(
                 'AI Food Recognition',
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 10),
               const Text(
                 'Identify food using your camera or gallery',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 16, color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 60),
@@ -95,7 +90,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   onPressed: () {
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const CameraPage()),
+                      MaterialPageRoute(
+                        builder: (context) => const CameraPage(),
+                      ),
                     );
                   },
                   icon: const Icon(Icons.camera_alt, size: 28),
@@ -121,23 +118,21 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 ),
               ),
-              if (Platform.isAndroid) ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _openNativeCamera,
-                    icon: const Icon(Icons.android, size: 28),
-                    label: const Text('Native Android Camera'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 20),
-                      textStyle: const TextStyle(fontSize: 18),
-                      backgroundColor: Colors.orange,
-                      foregroundColor: Colors.white,
-                    ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _openNativeCamera,
+                  icon: const Icon(Icons.android, size: 28),
+                  label: const Text('Native Camera'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    textStyle: const TextStyle(fontSize: 18),
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'litert_helper.dart';
@@ -18,6 +19,8 @@ class _CameraPageState extends State<CameraPage> {
   final ValueNotifier<String> _result = ValueNotifier<String>('');
   final ValueNotifier<double> _confidence = ValueNotifier<double>(0.0);
   final ValueNotifier<int?> _inferenceTimeMs = ValueNotifier<int?>(null);
+  final ValueNotifier<double> _convertTimeMs = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> _resizeTimeMs = ValueNotifier<double>(0.0);
 
   bool _isProcessing = false;
   bool _modelLoaded = false;
@@ -54,7 +57,8 @@ class _CameraPageState extends State<CameraPage> {
           _cameras![0],
           ResolutionPreset.veryHigh,
           enableAudio: false,
-          imageFormatGroup: ImageFormatGroup.yuv420,
+          fps: 30,
+          imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
         );
 
         await _cameraController!.initialize();
@@ -142,15 +146,25 @@ class _CameraPageState extends State<CameraPage> {
           imageToProcess!,
         );
         final endTime = DateTime.now();
-        final inferenceTime = endTime.difference(startTime).inMilliseconds;
+        final totalTime = endTime.difference(startTime).inMilliseconds;
+        
+        // Prediction now returns: [label, confidence, convertTime, resizeTime, inferenceTime]
+        final label = prediction[0] as String;
+        final confidence = prediction[1] as double;
+        final convertTime = prediction[2] as double;
+        final resizeTime = prediction[3] as double;
+        final inferenceTime = prediction[4] as double;
+        
         debugPrint(
-          'Inference completed in ${inferenceTime}ms (${_useGpu ? "GPU" : "CPU"} mode)',
+          'Total: ${totalTime}ms | Convert: ${convertTime.toInt()}ms | Resize: ${resizeTime.toInt()}ms | Inference: ${inferenceTime.toInt()}ms (${_useGpu ? "GPU" : "CPU"})',
         );
 
         if (mounted && _isStreaming) {
-          _result.value = prediction[0] as String;
-          _confidence.value = prediction[1] as double;
-          _inferenceTimeMs.value = inferenceTime;
+          _result.value = label;
+          _confidence.value = confidence;
+          _inferenceTimeMs.value = totalTime;
+          _convertTimeMs.value = convertTime;
+          _resizeTimeMs.value = resizeTime;
         }
       } catch (e) {
         debugPrint('Error during inference: $e');
@@ -333,6 +347,62 @@ class _CameraPageState extends State<CameraPage> {
                                                 ),
                                               ),
                                             ],
+                                          );
+                                        },
+                                      ),
+                                      const SizedBox(height: 8),
+                                      // Timing breakdown
+                                      ValueListenableBuilder<double>(
+                                        valueListenable: _convertTimeMs,
+                                        builder: (context, convertTime, child) {
+                                          return ValueListenableBuilder<double>(
+                                            valueListenable: _resizeTimeMs,
+                                            builder: (context, resizeTime, child) {
+                                              return ValueListenableBuilder<int?>(
+                                                valueListenable: _inferenceTimeMs,
+                                                builder: (context, totalTime, child) {
+                                                  if (totalTime == null) return const SizedBox.shrink();
+                                                  
+                                                  return Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Row(
+                                                        children: [
+                                                          const Icon(
+                                                            Icons.timer,
+                                                            color: Colors.green,
+                                                            size: 20,
+                                                          ),
+                                                          const SizedBox(width: 8),
+                                                          Text(
+                                                            'Total: ${totalTime}ms',
+                                                            style: const TextStyle(
+                                                              color: Colors.white,
+                                                              fontSize: 16,
+                                                              fontWeight: FontWeight.bold,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                      const SizedBox(height: 4),
+                                                      Padding(
+                                                        padding: const EdgeInsets.only(left: 28),
+                                                        child: Text(
+                                                          '├─ Convert: ${convertTime.toInt()}ms\n'
+                                                          '├─ Resize: ${resizeTime.toInt()}ms\n'
+                                                          '└─ Inference: ${(totalTime - convertTime - resizeTime).toInt()}ms',
+                                                          style: TextStyle(
+                                                            color: Colors.white.withOpacity(0.8),
+                                                            fontSize: 14,
+                                                            fontFamily: 'monospace',
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  );
+                                                },
+                                              );
+                                            },
                                           );
                                         },
                                       ),

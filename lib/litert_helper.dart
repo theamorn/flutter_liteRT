@@ -184,41 +184,70 @@ class LiteRTHelper {
   }
   
   // Real-time camera inference (async using IsolateInterpreter)
+  // Returns: [label, confidence, convertTime, resizeTime, inferenceTime]
   Future<List<dynamic>> predictFromCameraImage(CameraImage image) async {
-    final inputBytes = await _preprocessCameraImage(image);
-    final input = inputBytes.reshape([1, inputImageSize, inputImageSize, inputChannels]);
-    final output = List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
-    
-    // Use isolate interpreter for non-blocking inference
-    if (_isolateInterpreter != null) {
-      await _isolateInterpreter!.run(input, output);
-    } else {
-      // Fallback to synchronous if isolate not available
-      _interpreter.run(input, output);
-    }
-    
-    final List<dynamic> outputList = output[0] as List;
-    final List<double> rawOutput = outputList.map((e) => (e as num).toDouble()).toList();
-    final List<double> probabilities = _softmax(rawOutput);
-    
-    // Find top prediction, skipping background class (index 0)
-    double maxProb = 0;
-    int maxIndex = -1;
-    for(int i = 1; i < probabilities.length; i++) {
-      if (probabilities[i] > maxProb) {
-        maxProb = probabilities[i];
-        maxIndex = i;
+    try {
+      // Safety check: ensure labels are loaded
+      if (_labels.isEmpty) {
+        debugPrint('⚠️ Labels not loaded yet');
+        return ['Loading...', 0.0, 0.0, 0.0, 0.0];
       }
+      
+      final preprocessResult = await _preprocessCameraImage(image);
+      final inputBytes = preprocessResult['bytes'] as Uint8List;
+      final convertTime = preprocessResult['convertTime'] as double;
+      final resizeTime = preprocessResult['resizeTime'] as double;
+      
+      debugPrint('Input bytes: ${inputBytes.length}');
+      final input = inputBytes.reshape([1, inputImageSize, inputImageSize, inputChannels]);
+      final output = List.filled(_labels.length, 0.0).reshape([1, _labels.length]);
+      
+      // Use isolate interpreter for non-blocking inference
+      final inferenceStart = DateTime.now();
+      if (_isolateInterpreter != null) {
+        await _isolateInterpreter!.run(input, output);
+      } else {
+        // Fallback to synchronous if isolate not available
+        _interpreter.run(input, output);
+      }
+      final inferenceTime = DateTime.now().difference(inferenceStart).inMilliseconds.toDouble();
+      
+      final List<dynamic> outputList = output[0] as List;
+      final List<double> rawOutput = outputList.map((e) => (e as num).toDouble()).toList();
+      final List<double> probabilities = _softmax(rawOutput);
+      
+      // Find top prediction, skipping background class (index 0)
+      double maxProb = 0;
+      int maxIndex = -1;
+      for(int i = 1; i < probabilities.length; i++) {
+        if (probabilities[i] > maxProb) {
+          maxProb = probabilities[i];
+          maxIndex = i;
+        }
+      }
+      
+      // Safety check: ensure maxIndex is valid
+      if (maxIndex != -1 && maxIndex < _labels.length) {
+        return [_labels[maxIndex], maxProb, convertTime, resizeTime, inferenceTime];
+      } else {
+        return ['Unknown', 0.0, convertTime, resizeTime, inferenceTime];
+      }
+    } catch (e, stackTrace) {
+      debugPrint('❌ Error in predictFromCameraImage: $e');
+      debugPrint('Stack trace: $stackTrace');
+      return ['Error', 0.0, 0.0, 0.0, 0.0];
     }
-    
-    return maxIndex != -1 ? [_labels[maxIndex], maxProb] : ['Unknown', 0.0];
   }
   
   // Convert camera image to preprocessed uint8 array
-  Future<Uint8List> _preprocessCameraImage(CameraImage image) async {
-    final img.Image rgbImage = _convertYUV420ToImage(image);
+  // Returns: {'bytes': Uint8List, 'convertTime': double, 'resizeTime': double}
+  Future<Map<String, dynamic>> _preprocessCameraImage(CameraImage image) async {
+    final convertStart = DateTime.now();
+    final img.Image rgbImage = _convertToImage(image);
+    final convertTime = DateTime.now().difference(convertStart).inMilliseconds.toDouble();
 
     // Use compute to move heavy image processing to separate isolate
+    final resizeStart = DateTime.now();
     final inputBytes = await compute(
       _resizeAndConvertImage,
       _ImageResizeParams(
@@ -227,17 +256,47 @@ class LiteRTHelper {
         channels: inputChannels,
       ),
     );
+    final resizeTime = DateTime.now().difference(resizeStart).inMilliseconds.toDouble();
     
-    return inputBytes;
+    return {
+      'bytes': inputBytes,
+      'convertTime': convertTime,
+      'resizeTime': resizeTime,
+    };
   }
 
   // Convert YUV420 to RGB
-  img.Image _convertYUV420ToImage(CameraImage cameraImage) {
+  img.Image _convertToImage(CameraImage cameraImage) {
     final int width = cameraImage.width;
     final int height = cameraImage.height;
     
+    // Convert Image for iOS (BGRA8888)
+    if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+      final Uint8List bytes = cameraImage.planes[0].bytes;
+      final int bytesPerRow = cameraImage.planes[0].bytesPerRow;
+      
+      final image = img.Image(width: width, height: height);
+      
+      // Manually convert BGRA to RGB - use same indexing logic as Android
+      for (int h = 0; h < height; h++) {
+        for (int w = 0; w < width; w++) {
+          final int pixelIndex = (h * bytesPerRow) + (w * 4);
+          
+          final int b = bytes[pixelIndex];
+          final int g = bytes[pixelIndex + 1];
+          final int r = bytes[pixelIndex + 2];
+          // alpha at pixelIndex + 3 (not needed)
+          
+          image.setPixelRgba(w, h, r, g, b, 255);
+        }
+      }
+      
+      return image;
+    }
+
+    // Convert Image for Android (YUV420)
     final int uvRowStride = cameraImage.planes[1].bytesPerRow;
-    final int uvPixelStride = cameraImage.planes[1].bytesPerPixel!;
+    final int uvPixelStride = cameraImage.planes[1].bytesPerPixel ?? 1;
     
     final image = img.Image(width: width, height: height);
     
@@ -267,8 +326,12 @@ class LiteRTHelper {
   }
   
   void close() {
-    _isolateInterpreter?.close();
-    _interpreter.close();
+    try {
+      _isolateInterpreter?.close();
+      _interpreter.close();
+    } catch (e) {
+      debugPrint('Error closing interpreter: $e');
+    }
   }
 }
 
