@@ -30,6 +30,7 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            75, 200, 170
 
             <TextView
                 android:id="@+id/modeText"
@@ -53,9 +54,20 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Inference: --ms"
+            android:text="Total: --ms"
             android:textColor="#64B5F6"
-            android:textSize="14sp" />
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/timingDetailText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="monospace"
+            android:text=""
+            android:textColor="#AAAAAA"
+            android:textSize="12sp" />
 
         <View
             android:layout_width="match_parent"

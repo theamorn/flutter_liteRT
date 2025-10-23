@@ -26,6 +26,8 @@ class _CameraPageState extends State<CameraPage> {
   bool _modelLoaded = false;
   bool _isStreaming = false;
   bool _useGpu = false; // Default to CPU (faster on this device)
+  bool _useHighRes = true; // High resolution mode
+  bool _useIsolate = true; // Use compute() for resize (separate isolate)
   List<CameraDescription>? _cameras;
   Timer? _inferenceTimer;
   CameraImage? _latestImage;
@@ -55,9 +57,9 @@ class _CameraPageState extends State<CameraPage> {
       if (_cameras!.isNotEmpty) {
         _cameraController = CameraController(
           _cameras![0],
-          ResolutionPreset.veryHigh,
+          _useHighRes ? ResolutionPreset.veryHigh : ResolutionPreset.low,
           enableAudio: false,
-          fps: 30,
+          fps: _useHighRes ? 30 : 10,
           imageFormatGroup: Platform.isIOS ? ImageFormatGroup.bgra8888 : ImageFormatGroup.yuv420,
         );
 
@@ -144,6 +146,7 @@ class _CameraPageState extends State<CameraPage> {
         // Async inference using IsolateInterpreter - runs in separate isolate!
         final prediction = await _liteRTHelper.predictFromCameraImage(
           imageToProcess!,
+          useIsolate: _useIsolate,
         );
         final endTime = DateTime.now();
         final totalTime = endTime.difference(startTime).inMilliseconds;
@@ -200,6 +203,65 @@ class _CameraPageState extends State<CameraPage> {
         title: const Text('Food Classifier'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          // Resolution toggle
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.hd,
+                  size: 20,
+                  color: _useHighRes ? Colors.blue : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _useHighRes ? 'Hi' : 'Lo',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                Switch(
+                  value: _useHighRes,
+                  onChanged: (value) async {
+                    setState(() {
+                      _useHighRes = value;
+                    });
+                    // Reinitialize camera with new resolution
+                    _stopStreaming();
+                    await _cameraController?.dispose();
+                    await _initializeCamera();
+                  },
+                  activeColor: Colors.blue,
+                ),
+              ],
+            ),
+          ),
+          // Isolate toggle
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.layers,
+                  size: 20,
+                  color: _useIsolate ? Colors.purple : Colors.grey,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _useIsolate ? 'Iso' : 'Dir',
+                  style: const TextStyle(fontSize: 12),
+                ),
+                Switch(
+                  value: _useIsolate,
+                  onChanged: (value) {
+                    setState(() {
+                      _useIsolate = value;
+                    });
+                  },
+                  activeColor: Colors.purple,
+                ),
+              ],
+            ),
+          ),
+          // GPU toggle
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: Row(
@@ -235,12 +297,10 @@ class _CameraPageState extends State<CameraPage> {
       ),
       body: Column(
         children: [
-          // Inference Time Display
+          // Status bar with resolution and inference time
           ValueListenableBuilder<int?>(
             valueListenable: _inferenceTimeMs,
             builder: (context, inferenceTime, child) {
-              if (inferenceTime == null) return const SizedBox.shrink();
-
               return Container(
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(
@@ -249,18 +309,43 @@ class _CameraPageState extends State<CameraPage> {
                 ),
                 color: Colors.blue.shade50,
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Icon(Icons.timer, size: 20, color: Colors.blue.shade700),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Inference Time: $inferenceTime ms',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.blue.shade700,
-                      ),
+                    // Resolution indicator
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.videocam,
+                          size: 20,
+                          color: _useHighRes ? Colors.orange.shade700 : Colors.green.shade700,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _useHighRes ? 'High Res' : 'Low Res',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: _useHighRes ? Colors.orange.shade700 : Colors.green.shade700,
+                          ),
+                        ),
+                      ],
                     ),
+                    // Inference time
+                    if (inferenceTime != null)
+                      Row(
+                        children: [
+                          Icon(Icons.timer, size: 20, color: Colors.blue.shade700),
+                          const SizedBox(width: 8),
+                          Text(
+                            '$inferenceTime ms',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.blue.shade700,
+                            ),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               );

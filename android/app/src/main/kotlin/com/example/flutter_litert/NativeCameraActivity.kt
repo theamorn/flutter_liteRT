@@ -38,6 +38,7 @@ class NativeCameraActivity : AppCompatActivity() {
     private lateinit var resultText: TextView
     private lateinit var confidenceText: TextView
     private lateinit var inferenceTimeText: TextView
+    private lateinit var timingDetailText: TextView
     private lateinit var modeText: TextView
     
     @Volatile
@@ -69,6 +70,7 @@ class NativeCameraActivity : AppCompatActivity() {
         resultText = findViewById(R.id.resultText)
         confidenceText = findViewById(R.id.confidenceText)
         inferenceTimeText = findViewById(R.id.inferenceTimeText)
+        timingDetailText = findViewById(R.id.timingDetailText)
         modeText = findViewById(R.id.modeText)
         
         cameraExecutor = Executors.newSingleThreadExecutor()
@@ -203,11 +205,16 @@ class NativeCameraActivity : AppCompatActivity() {
         
         inferenceScope.launch {
             try {
-                val startTime = System.currentTimeMillis()
+                val totalStart = System.currentTimeMillis()
                 
+                // Convert to bitmap and rotate
+                val convertStart = System.currentTimeMillis()
                 val bitmap = imageProxy.toBitmap()
                 val rotatedBitmap = rotateBitmap(bitmap, imageProxy.imageInfo.rotationDegrees.toFloat())
+                val convertTime = System.currentTimeMillis() - convertStart
                 
+                // Resize and preprocess
+                val resizeStart = System.currentTimeMillis()
                 val tensorImage = TensorImage(org.tensorflow.lite.DataType.UINT8)
                 tensorImage.load(rotatedBitmap)
                 val imageProcessor = ImageProcessor.Builder()
@@ -217,13 +224,18 @@ class NativeCameraActivity : AppCompatActivity() {
                 
                 val processedImage = imageProcessor.process(tensorImage)
                 val inputBuffer = processedImage.buffer
+                val resizeTime = System.currentTimeMillis() - resizeStart
+                
+                // Run inference
+                val inferenceStart = System.currentTimeMillis()
                 val outputArray = Array(1) { ByteArray(labels.size) }
                 
                 synchronized(interpreterLock) {
                     interpreter?.run(inputBuffer, outputArray)
                 }
+                val inferenceTime = System.currentTimeMillis() - inferenceStart
                 
-                val inferenceTime = System.currentTimeMillis() - startTime
+                val totalTime = System.currentTimeMillis() - totalStart
                 
                 val floatOutput = FloatArray(labels.size) { i ->
                     (outputArray[0][i].toInt() and 0xFF) / 255.0f
@@ -243,7 +255,10 @@ class NativeCameraActivity : AppCompatActivity() {
                     withContext(Dispatchers.Main) {
                         resultText.text = labels.getOrNull(maxIndex) ?: "Unknown"
                         confidenceText.text = "Confidence: ${(maxProb * 100).toInt()}%"
-                        inferenceTimeText.text = "Inference: ${inferenceTime}ms"
+                        inferenceTimeText.text = "Total: ${totalTime}ms"
+                        timingDetailText.text = "├─ Convert: ${convertTime}ms\n" +
+                                "├─ Resize: ${resizeTime}ms\n" +
+                                "└─ Inference: ${inferenceTime}ms"
                     }
                 }
             } catch (e: Exception) {
